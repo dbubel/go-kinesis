@@ -32,21 +32,20 @@ func main() {
 	}
 	var client = kinesis.NewFromConfig(cfg)
 
-	hash := md5.Sum([]byte("hello"))
-	hashString := hex.EncodeToString(hash[:])
-
 	for i := 0; i < 10000; i++ {
 		s := fmt.Sprintf("hello %d", i)
+		hash := md5.Sum([]byte(s))
+		hashString := hex.EncodeToString(hash[:])
 		client.PutRecord(context.TODO(), &kinesis.PutRecordInput{
 			Data:         []byte(s),
 			PartitionKey: aws.String(hashString),
 			StreamName:   aws.String("test_stream"),
 		})
-		fmt.Println("tick")
+		fmt.Println(s)
 		if err != nil {
 			fmt.Println(err.Error())
 		}
 
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * 5)
 	}
 }

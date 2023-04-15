@@ -37,15 +37,15 @@ func main() {
 	}
 
 	var client = kinesis.NewFromConfig(cfg)
-	c := consumer.New(
+	c := consumer.NewConsumer(
 		client,
 		"test_stream",
 		consumer.WithTimestamp(time.Now().Add(-time.Second*5)),
 		consumer.WithShardIteratorType("AT_TIMESTAMP"),
 	)
 
-	err = c.ScanShardAsync(cancelScan(), "shardId-000000000000", func(record *consumer.Record) error {
-		fmt.Println(string(record.Data))
+	c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *consumer.Record) error {
+		fmt.Println(string(record.ShardID), string(record.Data))
 		time.Sleep(time.Second)
 		return nil
 	})

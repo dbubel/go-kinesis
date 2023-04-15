@@ -30,7 +30,7 @@ type Consumer struct {
 	maxRecords               int64
 }
 
-func New(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
+func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
 	c := &Consumer{
 		streamName:               streamName,
 		initialShardIteratorType: types.ShardIteratorTypeLatest,
@@ -44,7 +44,12 @@ func New(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
 	for _, opt := range opts {
 		opt(c)
 	}
+	shards, _ := listShards(context.TODO(), client, streamName)
+	for _, s := range shards {
+		fmt.Println(*s.ShardId)
+	}
 
+	fmt.Println(listShards(context.TODO(), client, streamName))
 	return c
 }
 
@@ -85,6 +90,23 @@ func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurren
 	})
 }
 
+func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
+	for i := 0; i < len(shardIDs); i++ {
+		shardID := shardIDs[i]
+		err := c.ScanShard(ctx, shardID, fn)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}
+}
+
+func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
+	for _, shard := range shardIDs {
+		shardID := shard
+		c.ScanShardAsync(ctx, shardID, concurrency, poolsize, fn)
+	}
+}
+
 // ScanShard loops over records on a specific shard, calls the callback func
 // for each record and checkpoints the progress of scan.
 func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) error {
@@ -93,6 +115,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 	//if err != nil {
 	//	return fmt.Errorf("get checkpoint error: %w", err)
 	//}
+	fmt.Println("scan shard shard id", shardID)
 	lastSeqNum := ""
 
 	// get shard iterator

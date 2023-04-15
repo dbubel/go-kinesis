@@ -1,7 +1,10 @@
 package consumer
 
+import "sync"
+
 type ConsumerStruct struct {
 	consumers map[string]*Consumer
+	wg        sync.WaitGroup
 }
 
 //

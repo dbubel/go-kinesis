@@ -35,7 +35,7 @@ func TestConsumer_ScanShard(t *testing.T) {
 
 	if assert.NoError(t, err) {
 
-		consumer := New(
+		consumer := NewConsumer(
 			"test_stream",
 			client,
 			WithTimestamp(time.Now().Add(-time.Second)),
