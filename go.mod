@@ -1,6 +1,6 @@
 module github.com/dbubel/go-kinesis
 
-go 1.19
+go 1.17
 
 require (
 	github.com/alitto/pond v1.8.3

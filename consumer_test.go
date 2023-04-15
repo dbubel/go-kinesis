@@ -1,10 +1,9 @@
-package consumer
+package go_kinesis
 
 import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -13,7 +12,6 @@ import (
 	"os/signal"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestConsumer_ScanShard(t *testing.T) {
@@ -26,38 +24,27 @@ func TestConsumer_ScanShard(t *testing.T) {
 		return endpoint, nil
 	})
 
-	cfg2, err := config.LoadDefaultConfig(
+	cfg2, _ := config.LoadDefaultConfig(
 		context.TODO(),
 		config.WithRegion("us-east-1"),
 		config.WithEndpointResolverWithOptions(endpointResolver),
 	)
 	var client = kinesis.NewFromConfig(cfg2)
 
-	if assert.NoError(t, err) {
-
-		consumer := NewConsumer(
-			"test_stream",
-			client,
-			WithTimestamp(time.Now().Add(-time.Second)),
-		)
-
-		submidtRecord(client)
-
-		err = consumer.ScanShard(cancelScan(), "shardId-000000000000", "", func(record *Record) error {
-			fmt.Println(string(record.Data))
-			return nil
-		})
-
-		if err != nil {
-
+	t.Run("test with store", func(t *testing.T) {
+		pg, err := NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable")
+		if !assert.NoError(t, err) {
+			return
 		}
-	}
+		NewConsumer(client, "", WithStore(pg))
+	})
+
 }
 
 func cancelScan() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
 	go func() {
 		<-sigs

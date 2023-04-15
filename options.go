@@ -1,4 +1,4 @@
-package consumer
+package go_kinesis
 
 import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -14,6 +14,13 @@ type Option func(*Consumer)
 func WithLogger(logger *logrus.Logger) Option {
 	return func(c *Consumer) {
 		c.logger = logger
+	}
+}
+
+// WithStore overrides the default logger
+func WithStore(store Store) Option {
+	return func(c *Consumer) {
+		c.store = store
 	}
 }
 

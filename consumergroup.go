@@ -1,10 +1,21 @@
-package consumer
+package go_kinesis
 
 import "sync"
 
-type ConsumerStruct struct {
+type ConsumerGroup struct {
 	consumers map[string]*Consumer
 	wg        sync.WaitGroup
+}
+
+func NewConsumerGroup(consumers []*Consumer) *ConsumerGroup{
+	consumerMap := make(map[string]*Consumer)
+	for i:=0;i<len(consumers);i++{
+		con
+	}
+	return &ConsumerGroup{
+		consumers: ),
+		wg:        sync.WaitGroup{},
+	}
 }
 
 //

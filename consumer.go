@@ -1,4 +1,4 @@
-package consumer
+package go_kinesis
 
 import (
 	"context"
@@ -28,6 +28,7 @@ type Consumer struct {
 	logger                   *logrus.Logger
 	scanInterval             time.Duration
 	maxRecords               int64
+	store                    Store
 }
 
 func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
@@ -44,6 +45,7 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 	for _, opt := range opts {
 		opt(c)
 	}
+
 	shards, _ := listShards(context.TODO(), client, streamName)
 	for _, s := range shards {
 		fmt.Println(*s.ShardId)

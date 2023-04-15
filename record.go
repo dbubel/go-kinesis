@@ -1,4 +1,4 @@
-package consumer
+package go_kinesis
 
 import "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 

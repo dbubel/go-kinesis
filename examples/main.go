@@ -6,8 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/dbubel/go-kinesis/consumer"
-	"github.com/dbubel/go-kinesis/store"
+	"github.com/dbubel/go-kinesis"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,21 +29,22 @@ func main() {
 		config.WithEndpointResolverWithOptions(endpointResolver),
 	)
 
-	pg, err := store.NewPostgresStore("host=localhost port=5432 user=cohesion_content password=1234 dbname=cohesion_content sslmode=disable")
-	_ = pg
+	pg, err := go_kinesis.NewPostgresStore("host=localhost port=5432 user=cohesion_content password=1234 dbname=cohesion_content sslmode=disable")
+
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 
 	var client = kinesis.NewFromConfig(cfg)
-	c := consumer.NewConsumer(
+	c := go_kinesis.NewConsumer(
 		client,
 		"test_stream",
-		consumer.WithTimestamp(time.Now().Add(-time.Second*5)),
-		consumer.WithShardIteratorType("AT_TIMESTAMP"),
+		go_kinesis.WithTimestamp(time.Now().Add(-time.Second*5)),
+		go_kinesis.WithShardIteratorType("AT_TIMESTAMP"),
+		go_kinesis.WithStore(pg),
 	)
 
-	c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *consumer.Record) error {
+	c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *go_kinesis.Record) error {
 		fmt.Println(string(record.ShardID), string(record.Data))
 		time.Sleep(time.Second)
 		return nil

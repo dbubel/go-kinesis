@@ -4,20 +4,11 @@ services:
   postgres:
     image: postgres:13-alpine
     environment:
-      - POSTGRES_USER=cohesion_content
+      - POSTGRES_USER=gokinesis
       - POSTGRES_PASSWORD=1234
-      - POSTGRES_DB=cohesion_content
+      - POSTGRES_DB=gokinesis
     ports:
       - "5432:5432"
-
-  migrate:
-    build: ./migrations/
-    environment:
-      - FLYWAY_URL=jdbc:postgresql://postgres:5432/cohesion_content
-      - FLYWAY_USER=cohesion_content
-      - FLYWAY_PASSWORD=1234
-    depends_on:
-      - postgres
 
   localstack:
     image: localstack/localstack:1.2

@@ -1,4 +1,4 @@
-package consumer
+package go_kinesis
 
 // ScanFunc is the type of the function called for each message read
 // from the stream. The record argument contains the original record

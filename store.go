@@ -1,13 +1,13 @@
 package go_kinesis
 
-// Store interface used to persist scan progress
-//type Store interface {
-//	GetCheckpoint(streamName, shardID string) (string, error)
-//	SetCheckpoint(streamName, shardID, sequenceNumber string) error
-//}
-//
-//// noopStore implements the storage interface with discard
-//type noopStore struct{}
-//
-//func (n noopStore) GetCheckpoint(string, string) (string, error) { return "", nil }
-//func (n noopStore) SetCheckpoint(string, string, string) error   { return nil }
+import (
+	"context"
+	_ "github.com/jackc/pgx/stdlib"
+)
+
+type Store interface {
+	HealthCheck(ctx context.Context) error
+	ReleaseStream(shardID string) error
+	findAvailableShard(shards []string) (string, error)
+	PollForShard(shards []string) (string, error)
+}

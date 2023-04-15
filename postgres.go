@@ -1,4 +1,4 @@
-package store
+package go_kinesis
 
 import (
 	"context"
