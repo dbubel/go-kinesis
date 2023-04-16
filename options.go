@@ -17,6 +17,12 @@ func WithLogger(logger *logrus.Logger) Option {
 	}
 }
 
+func WithShardLimit(shardLimit int) Option {
+	return func(c *Consumer) {
+		c.shardLimit = shardLimit
+	}
+}
+
 // WithStore overrides the default logger
 func WithStore(store Store) Option {
 	return func(c *Consumer) {

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/dbubel/go-kinesis"
+	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,12 +42,16 @@ func main() {
 		"test_stream",
 		go_kinesis.WithTimestamp(time.Now().Add(-time.Second*5)),
 		go_kinesis.WithShardIteratorType("AT_TIMESTAMP"),
-		//go_kinesis.WithStore(pg),
+		go_kinesis.WithStore(pg),
+		go_kinesis.WithShardLimit(1),
 	)
 
-	err := c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *go_kinesis.Record) error {
-		fmt.Println(string(record.ShardID), string(record.Data))
+	l := logrus.New()
+	l.SetLevel(logrus.DebugLevel)
+
+	err := c.Scan(cancelScan(), func(record *go_kinesis.Record) error {
 		time.Sleep(time.Second)
+		l.WithFields(logrus.Fields{"shard": record.ShardID}).Debug(string(record.Data))
 		return nil
 	})
 
@@ -58,7 +63,7 @@ func main() {
 func cancelScan() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 
 	go func() {
 		<-sigs

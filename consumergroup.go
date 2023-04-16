@@ -5,32 +5,57 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"golang.org/x/sync/errgroup"
-	"sync"
 )
 
 type ConsumerGroup struct {
 	*Consumer
-	wg *sync.WaitGroup
 }
 
 func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option) *ConsumerGroup {
-	var wg sync.WaitGroup
-	return &ConsumerGroup{NewConsumer(client, streamName, opts...), &wg}
+	return &ConsumerGroup{NewConsumer(client, streamName, opts...)}
 }
 
-func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
-	group, ctx := errgroup.WithContext(ctx)
-	for i := 0; i < len(shardIDs); i++ {
-		shardID := shardIDs[i]
-		group.Go(func() error {
+func (cg *ConsumerGroup) Scan(ctx context.Context, fn ScanFunc) error {
+	if cg.store == nil {
+		return fmt.Errorf("store is not initialized")
+	}
+
+	shards, err := listShards(ctx, cg.client, cg.streamName)
+	if err != nil {
+		return err
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	for i := 0; i < len(shards); i++ {
+		if i >= cg.shardLimit {
+			break
+		}
+
+		shardID := *shards[i].ShardId
+		g.Go(func() error {
 			return cg.ScanShard(ctx, shardID, fn)
 		})
 	}
 
-	fmt.Println("returning")
-	if err := group.Wait(); err != nil {
+	if err := g.Wait(); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
+	g, ctx := errgroup.WithContext(ctx)
+	for i := 0; i < len(shardIDs); i++ {
+		shardID := shardIDs[i]
+		g.Go(func() error {
+			return cg.ScanShard(ctx, shardID, fn)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+
 	return nil
 }
 

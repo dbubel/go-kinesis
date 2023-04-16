@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/sirupsen/logrus"
+	"runtime/debug"
 	"time"
 )
 
@@ -28,16 +29,20 @@ type Consumer struct {
 	scanInterval             time.Duration
 	maxRecords               int64
 	store                    Store
+	shardLimit               int
 }
 
 func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
+	log := logrus.New()
+	log.SetLevel(logrus.DebugLevel)
 	c := &Consumer{
 		streamName:               streamName,
 		initialShardIteratorType: types.ShardIteratorTypeLatest,
 		client:                   client,
-		logger:                   logrus.New(),
+		logger:                   log,
 		scanInterval:             250 * time.Millisecond,
 		maxRecords:               10000,
+		shardLimit:               10000,
 	}
 
 	// override defaults
@@ -110,11 +115,13 @@ func listShards(ctx context.Context, kc *kinesis.Client, streamName string) ([]t
 // ScanShard loops over records on a specific shard, calls the callback func
 // for each record and checkpoints the progress of scan.
 func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) error {
-	// get last seq number from checkpoint
-	//lastSeqNum, err := c.group.GetCheckpoint(c.streamName, shardID)
-	//if err != nil {
-	//	return fmt.Errorf("get checkpoint error: %w", err)
-	fmt.Println("in scan shard", shardID)
+
+	defer func() {
+		if err := recover(); err != nil {
+			c.logger.Error(string(debug.Stack()))
+		}
+	}()
+
 	lastSeqNum := ""
 
 	// get shard iterator
