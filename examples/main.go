@@ -30,7 +30,7 @@ func main() {
 		config.WithEndpointResolverWithOptions(endpointResolver),
 	)
 
-	pg, _ := go_kinesis.NewPostgresStore("host=localhost port=5432 user=cohesion_content password=1234 dbname=cohesion_content sslmode=disable")
+	pg, _ := go_kinesis.NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable")
 	_ = pg
 	//if err != nil {
 	//	fmt.Println(err.Error())
@@ -43,7 +43,7 @@ func main() {
 		go_kinesis.WithTimestamp(time.Now().Add(-time.Second*5)),
 		go_kinesis.WithShardIteratorType("AT_TIMESTAMP"),
 		go_kinesis.WithStore(pg),
-		go_kinesis.WithShardLimit(1),
+		//go_kinesis.WithShardLimit(2),
 	)
 
 	l := logrus.New()

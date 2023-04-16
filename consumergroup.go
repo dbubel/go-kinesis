@@ -2,20 +2,55 @@ package go_kinesis
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"golang.org/x/sync/errgroup"
+	"sync"
+	"time"
 )
 
 type ConsumerGroup struct {
 	*Consumer
+	activeShards int
+	mu           *sync.Mutex
 }
 
 func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option) *ConsumerGroup {
-	return &ConsumerGroup{NewConsumer(client, streamName, opts...)}
+	return &ConsumerGroup{
+		Consumer:     NewConsumer(client, streamName, opts...),
+		activeShards: 0,
+		mu:           &sync.Mutex{},
+	}
+}
+
+func (c *ConsumerGroup) Add(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activeShards += n
+}
+
+func (c *ConsumerGroup) Sub(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.activeShards -= n
 }
 
 func (cg *ConsumerGroup) Scan(ctx context.Context, fn ScanFunc) error {
+	scanTicker := time.NewTicker(time.Second)
+	defer scanTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-scanTicker.C:
+			cg.Scan(ctx, fn)
+		}
+	}
+}
+
+func (cg *ConsumerGroup) ScanWrapper(ctx context.Context, fn ScanFunc) error {
 	if cg.store == nil {
 		return fmt.Errorf("store is not initialized")
 	}
@@ -25,14 +60,35 @@ func (cg *ConsumerGroup) Scan(ctx context.Context, fn ScanFunc) error {
 		return err
 	}
 
+	var shardList []string
+	for i := 0; i < len(shards); i++ {
+		shardList = append(shardList, *shards[i].ShardId)
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
 	for i := 0; i < len(shards); i++ {
 		if i >= cg.shardLimit {
 			break
 		}
 
-		shardID := *shards[i].ShardId
+		shardID, err := cg.store.PollForAvailableShard(shardList)
+		if err == sql.ErrNoRows {
+			continue
+		}
+
+		if err != nil {
+			return err
+		}
+
 		g.Go(func() error {
+			defer func() {
+				cg.Sub(1)
+				if err := cg.store.ReleaseStream(shardID); err != nil {
+					cg.logger.WithError(err).Error()
+				}
+			}()
+
+			cg.Add(1)
 			return cg.ScanShard(ctx, shardID, fn)
 		})
 	}
@@ -40,6 +96,7 @@ func (cg *ConsumerGroup) Scan(ctx context.Context, fn ScanFunc) error {
 	if err := g.Wait(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -58,86 +115,3 @@ func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn S
 
 	return nil
 }
-
-//
-//// Group interface used to manage which shard to process
-//type Group interface {
-//	Start(ctx context.Context, shardc chan types.Shard)
-//	GetCheckpoint(streamName, shardID string) (string, error)
-//	SetCheckpoint(streamName, shardID, sequenceNumber string) error
-//}
-//
-//// NewAllGroup returns an intitialized AllGroup for consuming
-//// all shards on a stream
-//func NewAllGroup(ksis *kinesis.Client, store Store, streamName string, logger *logrus.Logger) *AllGroup {
-//	return &AllGroup{
-//		ksis:       ksis,
-//		shards:     make(map[string]types.Shard),
-//		streamName: streamName,
-//		logger:     logger,
-//		Store:      store,
-//	}
-//}
-//
-//// AllGroup is used to consume all shards from a single consumer. It
-//// caches a local list of the shards we are already processing
-//// and routinely polls the stream looking for new shards to process.
-//type AllGroup struct {
-//	ksis       *kinesis.Client
-//	streamName string
-//	logger     *logrus.Logger
-//	Store
-//
-//	shardMu sync.Mutex
-//	shards  map[string]types.Shard
-//}
-//
-//// Start is a blocking operation which will loop and attempt to find new
-//// shards on a regular cadence.
-//func (g *AllGroup) Start(ctx context.Context, shardc chan types.Shard) {
-//	// Note: while ticker is a rather naive approach to this problem,
-//	// it actually simplifies a few things. i.e. If we miss a new shard
-//	// while AWS is resharding we'll pick it up max 30 seconds later.
-//
-//	// It might be worth refactoring this flow to allow the consumer to
-//	// to notify the broker when a shard is closed. However, shards don't
-//	// necessarily close at the same time, so we could potentially get a
-//	// thundering heard of notifications from the consumer.
-//
-//	var ticker = time.NewTicker(30 * time.Second)
-//
-//	for {
-//		g.findNewShards(ctx, shardc)
-//
-//		select {
-//		case <-ctx.Done():
-//			ticker.Stop()
-//			return
-//		case <-ticker.C:
-//		}
-//	}
-//}
-//
-//// findNewShards pulls the list of shards from the Kinesis API
-//// and uses a local cache to determine if we are already processing
-//// a particular shard.
-//func (g *AllGroup) findNewShards(ctx context.Context, shardc chan types.Shard) {
-//	g.shardMu.Lock()
-//	defer g.shardMu.Unlock()
-//
-//	g.logger.Debug("[GROUP]", "fetching shards")
-//
-//	shards, err := listShards(ctx, g.ksis, g.streamName)
-//	if err != nil {
-//		g.logger.Debug("[GROUP] error:", err)
-//		return
-//	}
-//
-//	for _, shard := range shards {
-//		if _, ok := g.shards[*shard.ShardId]; ok {
-//			continue
-//		}
-//		g.shards[*shard.ShardId] = shard
-//		shardc <- shard
-//	}
-//}

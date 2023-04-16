@@ -36,14 +36,27 @@ func (s *Postgres) HealthCheck(ctx context.Context) error {
 }
 
 func (s *Postgres) ReleaseStream(shardID string) error {
-	//s.log.WithFields(logrus.Fields{"shard": shardID}).Info("releasing stream")
 	_, err := s.DbReader.Exec("update kinesis_shards set in_use = false,last_updated=now() where shard_id=$1", shardID)
 	return err
 }
 
-func (s *Postgres) findAvailableShard(shards []string) (string, error) {
+func (s *Postgres) SyncShards(shards []string) error {
+	for i := 0; i < len(shards); i++ {
+		_, err := s.DbReader.Exec("insert into kinesis_shards (shard_id) values ($1);", shards[i])
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+	}
+	return nil
+}
+
+func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 	var shardID string
 	tx, err := s.DbReader.Beginx()
+	if err != nil {
+		return shardID, err
+	}
+
 	query, args, err := sqlx.In("select shard_id from kinesis_shards where in_use is false and shard_id in (?) limit 1 for update;", shards)
 	if err != nil {
 		tx.Rollback()
@@ -52,6 +65,7 @@ func (s *Postgres) findAvailableShard(shards []string) (string, error) {
 
 	query = tx.Rebind(query)
 	err = tx.Get(&shardID, query, args...)
+
 	if err != nil {
 		tx.Rollback()
 		return shardID, err
@@ -63,16 +77,15 @@ func (s *Postgres) findAvailableShard(shards []string) (string, error) {
 		return shardID, err
 	}
 
-	var temp bool
-
-	err = tx.Get(&temp, "select in_use from kinesis_shards where shard_id = $1", shardID)
-
-	//s.log.WithFields(logrus.Fields{"shard": shardID, "inUse": temp}).Info("claiming shard")
+	//var temp bool
+	//err = tx.Get(&temp, "select in_use from kinesis_shards where shard_id = $1", shardID)
+	//fmt.Println("ret shard", shardID)
 	tx.Commit()
 	return shardID, nil
 }
 
-func (s *Postgres) PollForShard(shards []string) (string, error) {
+func (s *Postgres) PollForAvailableShard(shards []string) (string, error) {
+	s.SyncShards(shards)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	// Create a ticker to trigger every second
@@ -85,11 +98,10 @@ func (s *Postgres) PollForShard(shards []string) (string, error) {
 	for {
 		select {
 		case <-ticker.C:
-			shard, err := s.findAvailableShard(shards)
+			shard, err := s.FindFreeShard(shards)
 			if err == nil {
 				return shard, nil
 			}
-			//s.log.Info("polling for available shard")
 		case <-stopTimer.C:
 			return "", fmt.Errorf("could not get a free shard after 5 minutes")
 		case <-sigs:
