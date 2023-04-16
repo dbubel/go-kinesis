@@ -3,7 +3,6 @@ module github.com/dbubel/go-kinesis
 go 1.17
 
 require (
-	github.com/alitto/pond v1.8.3
 	github.com/aws/aws-sdk-go-v2 v1.17.8
 	github.com/aws/aws-sdk-go-v2/config v1.18.21
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.17.10
@@ -11,6 +10,7 @@ require (
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2
+	golang.org/x/sync v0.1.0
 )
 
 require (

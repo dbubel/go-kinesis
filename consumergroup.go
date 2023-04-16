@@ -1,21 +1,37 @@
 package go_kinesis
 
-import "sync"
+import (
+	"context"
+	"fmt"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"golang.org/x/sync/errgroup"
+	"sync"
+)
 
 type ConsumerGroup struct {
-	consumers map[string]*Consumer
-	wg        sync.WaitGroup
+	*Consumer
+	wg *sync.WaitGroup
 }
 
-func NewConsumerGroup(consumers []*Consumer) *ConsumerGroup{
-	consumerMap := make(map[string]*Consumer)
-	for i:=0;i<len(consumers);i++{
-		con
+func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option) *ConsumerGroup {
+	var wg sync.WaitGroup
+	return &ConsumerGroup{NewConsumer(client, streamName, opts...), &wg}
+}
+
+func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
+	group, ctx := errgroup.WithContext(ctx)
+	for i := 0; i < len(shardIDs); i++ {
+		shardID := shardIDs[i]
+		group.Go(func() error {
+			return cg.ScanShard(ctx, shardID, fn)
+		})
 	}
-	return &ConsumerGroup{
-		consumers: ),
-		wg:        sync.WaitGroup{},
+
+	fmt.Println("returning")
+	if err := group.Wait(); err != nil {
+		return err
 	}
+	return nil
 }
 
 //

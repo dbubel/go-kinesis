@@ -29,22 +29,22 @@ func main() {
 		config.WithEndpointResolverWithOptions(endpointResolver),
 	)
 
-	pg, err := go_kinesis.NewPostgresStore("host=localhost port=5432 user=cohesion_content password=1234 dbname=cohesion_content sslmode=disable")
-
-	if err != nil {
-		fmt.Println(err.Error())
-	}
+	pg, _ := go_kinesis.NewPostgresStore("host=localhost port=5432 user=cohesion_content password=1234 dbname=cohesion_content sslmode=disable")
+	_ = pg
+	//if err != nil {
+	//	fmt.Println(err.Error())
+	//}
 
 	var client = kinesis.NewFromConfig(cfg)
-	c := go_kinesis.NewConsumer(
+	c := go_kinesis.NewConsumerGroup(
 		client,
 		"test_stream",
 		go_kinesis.WithTimestamp(time.Now().Add(-time.Second*5)),
 		go_kinesis.WithShardIteratorType("AT_TIMESTAMP"),
-		go_kinesis.WithStore(pg),
+		//go_kinesis.WithStore(pg),
 	)
 
-	c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *go_kinesis.Record) error {
+	err := c.ScanShards(cancelScan(), []string{"shardId-000000000000", "shardId-000000000001"}, func(record *go_kinesis.Record) error {
 		fmt.Println(string(record.ShardID), string(record.Data))
 		time.Sleep(time.Second)
 		return nil

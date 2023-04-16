@@ -3,7 +3,6 @@ package go_kinesis
 import (
 	"context"
 	"fmt"
-	"github.com/alitto/pond"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
@@ -11,14 +10,14 @@ import (
 	"time"
 )
 
-type TimeFormatter struct {
-	logrus.Formatter
-}
-
-func (u TimeFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Time = e.Time.In(time.Local)
-	return u.Formatter.Format(e)
-}
+//type TimeFormatter struct {
+//	logrus.Formatter
+//}
+//
+//func (u TimeFormatter) Format(e *logrus.Entry) ([]byte, error) {
+//	e.Time = e.Time.In(time.Local)
+//	return u.Formatter.Format(e)
+//}
 
 type Consumer struct {
 	streamName               string
@@ -46,12 +45,11 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 		opt(c)
 	}
 
-	shards, _ := listShards(context.TODO(), client, streamName)
-	for _, s := range shards {
-		fmt.Println(*s.ShardId)
-	}
+	//shards, _ := listShards(context.TODO(), client, streamName)
+	//for _, s := range shards {
+	//	fmt.Println(*s.ShardId)
+	//}
 
-	fmt.Println(listShards(context.TODO(), client, streamName))
 	return c
 }
 
@@ -79,35 +77,35 @@ func listShards(ctx context.Context, kc *kinesis.Client, streamName string) ([]t
 	}
 }
 
-func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) error {
-	pool := pond.New(concurrency, poolsize)
-	return c.ScanShard(ctx, shardID, func(record *Record) error {
-		pool.Submit(func() {
-			err := fn(record)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-		})
-		return nil
-	})
-}
+//func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) error {
+//	pool := pond.New(concurrency, poolsize)
+//	return c.ScanShard(ctx, shardID, func(record *Record) error {
+//		pool.Submit(func() {
+//			err := fn(record)
+//			if err != nil {
+//				fmt.Println(err.Error())
+//			}
+//		})
+//		return nil
+//	})
+//}
 
-func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
-	for i := 0; i < len(shardIDs); i++ {
-		shardID := shardIDs[i]
-		err := c.ScanShard(ctx, shardID, fn)
-		if err != nil {
-			fmt.Println(err.Error())
-		}
-	}
-}
+//func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
+//	for i := 0; i < len(shardIDs); i++ {
+//		shardID := shardIDs[i]
+//		err := c.ScanShard(ctx, shardID, fn)
+//		if err != nil {
+//			c.logger.WithError(err).Error("error in ScanShards")
+//		}
+//	}
+//}
 
-func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
-	for _, shard := range shardIDs {
-		shardID := shard
-		c.ScanShardAsync(ctx, shardID, concurrency, poolsize, fn)
-	}
-}
+//func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
+//	for _, shard := range shardIDs {
+//		shardID := shard
+//		c.ScanShardAsync(ctx, shardID, concurrency, poolsize, fn)
+//	}
+//}
 
 // ScanShard loops over records on a specific shard, calls the callback func
 // for each record and checkpoints the progress of scan.
@@ -116,8 +114,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 	//lastSeqNum, err := c.group.GetCheckpoint(c.streamName, shardID)
 	//if err != nil {
 	//	return fmt.Errorf("get checkpoint error: %w", err)
-	//}
-	fmt.Println("scan shard shard id", shardID)
+	fmt.Println("in scan shard", shardID)
 	lastSeqNum := ""
 
 	// get shard iterator
@@ -143,7 +140,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 
 		// attempt to recover from GetRecords error
 		if err != nil {
-			c.logger.Debug("[CONSUMER] get records error:", err.Error())
+			//c.logger.WithError(err).WithFields(logrus.Fields{"section":"consumer"}).Error("get records error")
 
 			if !isRecoverable(err) {
 				return fmt.Errorf("get records error: %v", err.Error())
@@ -163,7 +160,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 			for _, r := range records {
 				select {
 				case <-ctx.Done():
-					return nil
+					return fmt.Errorf("ScanShard context cancelled during record scan")
 				default:
 					err := fn(&Record{r, shardID, resp.MillisBehindLatest})
 					if err != nil && err != ErrSkipCheckpoint {
@@ -183,7 +180,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 		// Wait for next scan
 		select {
 		case <-ctx.Done():
-			return nil
+			return fmt.Errorf("ScanShard context cancelled")
 		case <-scanTicker.C:
 			continue
 		}
