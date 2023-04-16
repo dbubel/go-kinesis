@@ -29,12 +29,14 @@ func main() {
 		config.WithRegion("us-east-1"),
 		config.WithEndpointResolverWithOptions(endpointResolver),
 	)
+	l := logrus.New()
+	l.SetLevel(logrus.DebugLevel)
+	pg, err := go_kinesis.NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable", l)
 
-	pg, _ := go_kinesis.NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable")
-	_ = pg
-	//if err != nil {
-	//	fmt.Println(err.Error())
-	//}
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
 
 	var client = kinesis.NewFromConfig(cfg)
 	c := go_kinesis.NewConsumerGroup(
@@ -46,10 +48,7 @@ func main() {
 		//go_kinesis.WithShardLimit(2),
 	)
 
-	l := logrus.New()
-	l.SetLevel(logrus.DebugLevel)
-
-	err := c.Scan(cancelScan(), func(record *go_kinesis.Record) error {
+	err = c.ScanAll(cancelScan(), func(record *go_kinesis.Record) error {
 		time.Sleep(time.Second)
 		l.WithFields(logrus.Fields{"shard": record.ShardID}).Debug(string(record.Data))
 		return nil

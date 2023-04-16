@@ -2,6 +2,7 @@ package go_kinesis
 
 import (
 	"context"
+	_ "github.com/jackc/pgx/stdlib"
 )
 
 type Store interface {

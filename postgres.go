@@ -3,7 +3,10 @@ package go_kinesis
 import (
 	"context"
 	"fmt"
+	"github.com/jackc/pgx"
+	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
+	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,9 +15,10 @@ import (
 
 type Postgres struct {
 	DbReader *sqlx.DB
+	log      *logrus.Logger
 }
 
-func NewPostgresStore(dsn string) (*Postgres, error) {
+func NewPostgresStore(dsn string, log *logrus.Logger) (*Postgres, error) {
 	var s Postgres
 	var dbReader *sqlx.DB
 	var errReader error
@@ -27,7 +31,7 @@ func NewPostgresStore(dsn string) (*Postgres, error) {
 	dbReader.SetMaxOpenConns(32)
 
 	s.DbReader = dbReader
-	//s.log = log
+	s.log = log
 	return &s, nil
 }
 
@@ -43,8 +47,8 @@ func (s *Postgres) ReleaseStream(shardID string) error {
 func (s *Postgres) SyncShards(shards []string) error {
 	for i := 0; i < len(shards); i++ {
 		_, err := s.DbReader.Exec("insert into kinesis_shards (shard_id) values ($1);", shards[i])
-		if err != nil {
-			fmt.Println(err.Error())
+		if err.(pgx.PgError).Code != "23505" {
+			return err
 		}
 	}
 	return nil
@@ -85,14 +89,16 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 }
 
 func (s *Postgres) PollForAvailableShard(shards []string) (string, error) {
-	s.SyncShards(shards)
+	if err := s.SyncShards(shards); err != nil {
+		return "", err
+	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	// Create a ticker to trigger every second
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	stopTimer := time.NewTimer(30 * time.Second)
+	stopTimer := time.NewTimer(60 * time.Second)
 
 	// Loop until the stopTimer triggers or a condition is met
 	for {
@@ -102,7 +108,9 @@ func (s *Postgres) PollForAvailableShard(shards []string) (string, error) {
 			if err == nil {
 				return shard, nil
 			}
+			s.log.Info("looking for available shards")
 		case <-stopTimer.C:
+			s.log.Info("polling timer up")
 			return "", fmt.Errorf("could not get a free shard after 5 minutes")
 		case <-sigs:
 			return "", fmt.Errorf("polling interupted")
