@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 	"sync"
 )
 
@@ -14,6 +13,7 @@ type ConsumerGroup struct {
 	*Consumer
 	activeShards int
 	mu           *sync.Mutex
+	wg           *sync.WaitGroup
 }
 
 func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option) *ConsumerGroup {
@@ -21,6 +21,7 @@ func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option)
 		Consumer:     NewConsumer(client, streamName, opts...),
 		activeShards: 0,
 		mu:           &sync.Mutex{},
+		wg:           &sync.WaitGroup{},
 	}
 }
 
@@ -36,21 +37,11 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-func (cg *ConsumerGroup) listShards() ([]string, error) {
-	var shardList []string
-
-	shards, err := listShards(cg.client, cg.streamName)
-	if err != nil {
-		return shardList, err
+func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
+	if cg.store == nil {
+		return fmt.Errorf("store is not initialized")
 	}
 
-	for i := 0; i < len(shards); i++ {
-		shardList = append(shardList, *shards[i].ShardId)
-	}
-	return shardList, nil
-}
-
-func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn ScanFunc) error {
 	shards, err := cg.listShards()
 	if err != nil {
 		return err
@@ -67,40 +58,27 @@ func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn Scan
 			return err
 		}
 
-		cg.consume(ctx, g, shardID, fn)
+		go cg.consume(ctx, shardID, fn)
 	}
+
+	cg.wg.Wait()
 	return nil
 }
 
-func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
-	if cg.store == nil {
-		return fmt.Errorf("store is not initialized")
-	}
-	g, ctx := errgroup.WithContext(ctx)
-	cg.dostuff(ctx, g, fn)
+func (cg *ConsumerGroup) consume(ctx context.Context, shardID string, fn ScanFunc) {
+	defer func() {
+		if err := cg.store.ReleaseStream(shardID); err != nil {
+			cg.logger.WithError(err).Error()
+		} else {
+			cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
+		}
+		cg.Sub(1)
+		cg.wg.Done()
+	}()
 
-	if err := g.Wait(); err != nil {
-		fmt.Println("when here")
-		return err
-	}
-
-	return nil
-}
-
-func (cg *ConsumerGroup) consume(ctx context.Context, g *errgroup.Group, shardID string, fn ScanFunc) {
-	g.Go(func() error {
-		defer func() {
-			cg.Sub(1)
-			if err := cg.store.ReleaseStream(shardID); err != nil {
-				cg.logger.WithError(err).Error()
-			} else {
-				cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
-			}
-		}()
-
-		cg.Add(1)
-		return cg.ScanShard(ctx, shardID, fn)
-	})
+	cg.Add(1)
+	cg.wg.Add(1)
+	cg.ScanShard(ctx, shardID, fn)
 }
 
 //

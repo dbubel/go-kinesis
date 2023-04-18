@@ -50,19 +50,14 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 		opt(c)
 	}
 
-	//shards, _ := listShards(context.TODO(), client, streamName)
-	//for _, s := range shards {
-	//	fmt.Println(*s.ShardId)
-	//}
-
 	return c
 }
 
-// listShards pulls a list of Shard IDs from the kinesis api
-func listShards(kc *kinesis.Client, streamName string) ([]types.Shard, error) {
+func (c *Consumer) listShards() ([]string, error) {
+	var shardList []string
 
-	streamDesc, err := kc.DescribeStream(context.TODO(), &kinesis.DescribeStreamInput{
-		StreamName: aws.String(streamName),
+	streamDesc, err := c.client.DescribeStream(context.TODO(), &kinesis.DescribeStreamInput{
+		StreamName: aws.String(c.streamName),
 	})
 
 	if err != nil {
@@ -72,23 +67,15 @@ func listShards(kc *kinesis.Client, streamName string) ([]types.Shard, error) {
 	if streamDesc.StreamDescription.StreamStatus != types.StreamStatusActive {
 		return nil, fmt.Errorf("stream status is not active")
 	}
-	return streamDesc.StreamDescription.Shards, nil
 
-	//for {
-	//	resp, err := kc.ListShards(ctx, listShardsInput)
-	//	if err != nil {
-	//		return nil, fmt.Errorf("ListShards error: %w", err)
-	//	}
-	//	ss = append(ss, resp.Shards...)
-	//
-	//	if resp.NextToken == nil {
-	//		return ss, nil
-	//	}
-	//
-	//	listShardsInput = &kinesis.ListShardsInput{
-	//		NextToken: resp.NextToken,
-	//	}
-	//}
+	if err != nil {
+		return shardList, err
+	}
+
+	for i := 0; i < len(streamDesc.StreamDescription.Shards); i++ {
+		shardList = append(shardList, *streamDesc.StreamDescription.Shards[i].ShardId)
+	}
+	return shardList, nil
 }
 
 //func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) error {
@@ -123,9 +110,10 @@ func listShards(kc *kinesis.Client, streamName string) ([]types.Shard, error) {
 
 // ScanShard loops over records on a specific shard, calls the callback func
 // for each record and checkpoints the progress of scan.
-func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) error {
+func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 
 	defer func() {
+
 		if err := recover(); err != nil {
 			c.logger.Error(string(debug.Stack()))
 		}
@@ -136,7 +124,8 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 	// get shard iterator
 	out, err := c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
 	if err != nil {
-		return fmt.Errorf("get shard iterator error: %w", err)
+		c.logger.WithError(err).Error("get shard iterator error")
+		return
 	}
 	shardIterator := out.ShardIterator
 
@@ -164,23 +153,27 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 		if err != nil {
 
 			if !isRecoverable(err) {
-				return fmt.Errorf("get records error: %v", err.Error())
+				c.logger.WithError(err).Error("get records error")
+				return
 			}
 
 			out, err = c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
 			if err != nil {
-				return fmt.Errorf("get shard iterator error: %w", err)
+				c.logger.WithError(err).Error("get shard iterator error")
+				return
 			}
 			shardIterator = out.ShardIterator
 		} else {
 			for _, r := range resp.Records {
 				select {
 				case <-ctx.Done():
-					return fmt.Errorf("ScanShard context cancelled during record scan")
+					c.logger.WithError(err).Error("ScanShard context cancelled during record scan")
+					return
 				default:
 					err := fn(&Record{r, shardID, resp.MillisBehindLatest})
 					if err != nil {
-						return err
+						c.logger.WithError(err).Error("error in scan func")
+						return
 					}
 					lastSeqNum = *r.SequenceNumber
 				}
@@ -191,7 +184,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 					"shardId":    shardID,
 					"lastSeqNum": lastSeqNum,
 				}).Info("shard closed")
-				return nil
+				return
 			}
 			shardIterator = resp.NextShardIterator
 		}
@@ -199,7 +192,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 		// Wait for next scan
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-scanTicker.C:
 			continue
 		}
