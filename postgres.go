@@ -77,9 +77,6 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 		return shardID, err
 	}
 
-	//var temp bool
-	//err = tx.Get(&temp, "select in_use from kinesis_shards where shard_id = $1", shardID)
-	//fmt.Println("ret shard", shardID)
 	tx.Commit()
 	return shardID, nil
 }
@@ -88,15 +85,10 @@ func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (
 	if err := s.SyncShards(shards); err != nil {
 		return "", err
 	}
-	//sigs := make(chan os.Signal, 1)
-	//signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
-	// Create a ticker to trigger every second
-	ticker := time.NewTicker(1 * time.Second)
+
+	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 
-	//stopTimer := time.NewTimer(10 * time.Second)
-
-	// Loop until the stopTimer triggers or a condition is met
 	for {
 		select {
 		case <-ticker.C:

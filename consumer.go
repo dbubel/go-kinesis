@@ -153,7 +153,6 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 
 		// attempt to recover from GetRecords error
 		if err != nil {
-			//c.logger.WithError(err).WithFields(logrus.Fields{"section":"consumer"}).Error("get records error")
 
 			if !isRecoverable(err) {
 				return fmt.Errorf("get records error: %v", err.Error())
@@ -179,7 +178,10 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 			}
 
 			if shardClosed(resp.NextShardIterator, shardIterator) {
-				c.logger.Debug("shard closed:", shardID)
+				c.logger.WithFields(logrus.Fields{
+					"shardId":    shardID,
+					"lastSeqNum": lastSeqNum,
+				}).Info("shard closed")
 				return nil
 			}
 			shardIterator = resp.NextShardIterator
