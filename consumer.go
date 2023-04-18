@@ -59,27 +59,36 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 }
 
 // listShards pulls a list of Shard IDs from the kinesis api
-func listShards(ctx context.Context, kc *kinesis.Client, streamName string) ([]types.Shard, error) {
-	var ss []types.Shard
-	var listShardsInput = &kinesis.ListShardsInput{
+func listShards(kc *kinesis.Client, streamName string) ([]types.Shard, error) {
+
+	streamDesc, err := kc.DescribeStream(context.TODO(), &kinesis.DescribeStreamInput{
 		StreamName: aws.String(streamName),
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	for {
-		resp, err := kc.ListShards(ctx, listShardsInput)
-		if err != nil {
-			return nil, fmt.Errorf("ListShards error: %w", err)
-		}
-		ss = append(ss, resp.Shards...)
-
-		if resp.NextToken == nil {
-			return ss, nil
-		}
-
-		listShardsInput = &kinesis.ListShardsInput{
-			NextToken: resp.NextToken,
-		}
+	if streamDesc.StreamDescription.StreamStatus != types.StreamStatusActive {
+		return nil, fmt.Errorf("stream status is not active")
 	}
+	return streamDesc.StreamDescription.Shards, nil
+
+	//for {
+	//	resp, err := kc.ListShards(ctx, listShardsInput)
+	//	if err != nil {
+	//		return nil, fmt.Errorf("ListShards error: %w", err)
+	//	}
+	//	ss = append(ss, resp.Shards...)
+	//
+	//	if resp.NextToken == nil {
+	//		return ss, nil
+	//	}
+	//
+	//	listShardsInput = &kinesis.ListShardsInput{
+	//		NextToken: resp.NextToken,
+	//	}
+	//}
 }
 
 //func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) error {
@@ -170,7 +179,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 					return fmt.Errorf("ScanShard context cancelled during record scan")
 				default:
 					err := fn(&Record{r, shardID, resp.MillisBehindLatest})
-					if err != nil && err != ErrSkipCheckpoint {
+					if err != nil {
 						return err
 					}
 					lastSeqNum = *r.SequenceNumber
@@ -197,7 +206,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 	}
 }
 
-var ErrSkipCheckpoint = fmt.Errorf("skip checkpoint")
+//var ErrSkipCheckpoint = fmt.Errorf("skip checkpoint")
 
 func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID, seqNum string) (*kinesis.GetShardIteratorOutput, error) {
 	params := &kinesis.GetShardIteratorInput{

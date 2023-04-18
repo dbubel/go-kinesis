@@ -8,7 +8,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"sync"
-	"time"
 )
 
 type ConsumerGroup struct {
@@ -37,10 +36,10 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-func (cg *ConsumerGroup) listShards(ctx context.Context) ([]string, error) {
+func (cg *ConsumerGroup) listShards() ([]string, error) {
 	var shardList []string
 
-	shards, err := listShards(ctx, cg.client, cg.streamName)
+	shards, err := listShards(cg.client, cg.streamName)
 	if err != nil {
 		return shardList, err
 	}
@@ -52,7 +51,7 @@ func (cg *ConsumerGroup) listShards(ctx context.Context) ([]string, error) {
 }
 
 func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn ScanFunc) error {
-	shards, err := cg.listShards(ctx)
+	shards, err := cg.listShards()
 	if err != nil {
 		return err
 	}
@@ -63,13 +62,11 @@ func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn Scan
 		}
 
 		shardID, err := cg.store.PollForAvailableShard(ctx, shards)
-		if err == sql.ErrNoRows {
-			continue
-		}
 
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
+
 		cg.consume(ctx, g, shardID, fn)
 	}
 	return nil
@@ -83,25 +80,11 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	cg.dostuff(ctx, g, fn)
 
 	if err := g.Wait(); err != nil {
+		fmt.Println("when here")
 		return err
 	}
 
 	return nil
-}
-
-func (cg *ConsumerGroup) shardDiscovery(ctx context.Context, fn ScanFunc) {
-	scanTicker := time.NewTicker(time.Second)
-	defer scanTicker.Stop()
-
-	for {
-		// Wait for next scan
-		select {
-		case <-ctx.Done():
-			return
-		case <-scanTicker.C:
-			cg.ScanAll(ctx, fn)
-		}
-	}
 }
 
 func (cg *ConsumerGroup) consume(ctx context.Context, g *errgroup.Group, shardID string, fn ScanFunc) {
@@ -120,18 +103,35 @@ func (cg *ConsumerGroup) consume(ctx context.Context, g *errgroup.Group, shardID
 	})
 }
 
-func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
-	g, ctx := errgroup.WithContext(ctx)
-	for i := 0; i < len(shardIDs); i++ {
-		shardID := shardIDs[i]
-		g.Go(func() error {
-			return cg.ScanShard(ctx, shardID, fn)
-		})
-	}
+//
+//func (cg *ConsumerGroup) shardDiscovery(ctx context.Context, fn ScanFunc) {
+//	scanTicker := time.NewTicker(time.Second)
+//	defer scanTicker.Stop()
+//
+//	for {
+//		// Wait for next scan
+//		select {
+//		case <-ctx.Done():
+//			return
+//		case <-scanTicker.C:
+//			cg.ScanAll(ctx, fn)
+//		}
+//	}
+//}
 
-	if err := g.Wait(); err != nil {
-		return err
-	}
-
-	return nil
-}
+//
+//func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
+//	g, ctx := errgroup.WithContext(ctx)
+//	for i := 0; i < len(shardIDs); i++ {
+//		shardID := shardIDs[i]
+//		g.Go(func() error {
+//			return cg.ScanShard(ctx, shardID, fn)
+//		})
+//	}
+//
+//	if err := g.Wait(); err != nil {
+//		return err
+//	}
+//
+//	return nil
+//}

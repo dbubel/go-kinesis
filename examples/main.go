@@ -49,6 +49,9 @@ func main() {
 	)
 
 	err = c.ScanAll(cancelScan(), func(record *go_kinesis.Record) error {
+		if record.ShardID == "shardId-000000000001" {
+			panic("f")
+		}
 		l.WithFields(logrus.Fields{"shard": record.ShardID}).Debug(string(record.Data))
 		return nil
 	})
