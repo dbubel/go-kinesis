@@ -4,11 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
+	"sync"
 )
 
 type ConsumerGroup struct {
@@ -39,19 +37,18 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			cg.ScanAll(ctx, fn)
-			time.Sleep(time.Second)
-			return nil
-		}
-	}
-	return nil
-}
+//func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
+//	for {
+//		select {
+//		case <-ctx.Done():
+//			return nil
+//		default:
+//			cg.ScanAll(ctx, fn)
+//			time.Sleep(time.Second)
+//			return nil
+//		}
+//	}
+//}
 
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	if cg.store == nil {
@@ -75,7 +72,7 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
-
+		cg.wg.Add(1)
 		go cg.consume(ctx, shardID, fn)
 	}
 
@@ -84,19 +81,18 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 }
 
 func (cg *ConsumerGroup) consume(ctx context.Context, shardID string, fn ScanFunc) {
-	defer func() {
-		if err := cg.store.ReleaseStream(shardID); err != nil {
-			cg.logger.WithError(err).Error("error releasing shard")
-		} else {
-			cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
-		}
-		cg.Sub(1)
-		cg.wg.Done()
-	}()
 
 	cg.Add(1)
-	cg.wg.Add(1)
-	cg.ScanShard(ctx, shardID, fn)
+	cg.ScanShard(ctx, shardID, fn) // this blocks while
+
+	if err := cg.store.ReleaseStream(shardID); err != nil {
+		cg.logger.WithError(err).Error("error releasing shard")
+	} else {
+		cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
+	}
+
+	cg.Sub(1)
+	cg.wg.Done()
 }
 
 //
