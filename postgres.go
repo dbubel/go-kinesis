@@ -2,14 +2,10 @@ package go_kinesis
 
 import (
 	"context"
-	"fmt"
 	"github.com/jackc/pgx"
 	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -88,17 +84,17 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 	return shardID, nil
 }
 
-func (s *Postgres) PollForAvailableShard(shards []string) (string, error) {
+func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (string, error) {
 	if err := s.SyncShards(shards); err != nil {
 		return "", err
 	}
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	//sigs := make(chan os.Signal, 1)
+	//signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	// Create a ticker to trigger every second
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	stopTimer := time.NewTimer(60 * time.Second)
+	//stopTimer := time.NewTimer(10 * time.Second)
 
 	// Loop until the stopTimer triggers or a condition is met
 	for {
@@ -109,11 +105,13 @@ func (s *Postgres) PollForAvailableShard(shards []string) (string, error) {
 				return shard, nil
 			}
 			s.log.Info("looking for available shards")
-		case <-stopTimer.C:
-			s.log.Info("polling timer up")
-			return "", fmt.Errorf("could not get a free shard after 5 minutes")
-		case <-sigs:
-			return "", fmt.Errorf("polling interupted")
+		case <-ctx.Done():
+			return "", nil
+			//case <-stopTimer.C:
+			//	s.log.Info("polling timer up")
+			//	return "", fmt.Errorf("could not get a free shard after 5 minutes")
+			//case <-sigs:
+			//	return "", fmt.Errorf("polling interupted")
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"sync"
 	"time"
@@ -61,7 +62,7 @@ func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn Scan
 			break
 		}
 
-		shardID, err := cg.store.PollForAvailableShard(shards)
+		shardID, err := cg.store.PollForAvailableShard(ctx, shards)
 		if err == sql.ErrNoRows {
 			continue
 		}
@@ -69,7 +70,7 @@ func (cg *ConsumerGroup) dostuff(ctx context.Context, g *errgroup.Group, fn Scan
 		if err != nil {
 			return err
 		}
-		cg.spawnWorker(ctx, g, shardID, fn)
+		cg.consume(ctx, g, shardID, fn)
 	}
 	return nil
 }
@@ -81,7 +82,6 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	g, ctx := errgroup.WithContext(ctx)
 	cg.dostuff(ctx, g, fn)
 
-	go cg.shardDiscovery(ctx, fn)
 	if err := g.Wait(); err != nil {
 		return err
 	}
@@ -104,12 +104,14 @@ func (cg *ConsumerGroup) shardDiscovery(ctx context.Context, fn ScanFunc) {
 	}
 }
 
-func (cg *ConsumerGroup) spawnWorker(ctx context.Context, g *errgroup.Group, shardID string, fn ScanFunc) {
+func (cg *ConsumerGroup) consume(ctx context.Context, g *errgroup.Group, shardID string, fn ScanFunc) {
 	g.Go(func() error {
 		defer func() {
 			cg.Sub(1)
 			if err := cg.store.ReleaseStream(shardID); err != nil {
 				cg.logger.WithError(err).Error()
+			} else {
+				cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
 			}
 		}()
 

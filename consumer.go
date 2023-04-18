@@ -131,9 +131,15 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 	}
 	shardIterator := out.ShardIterator
 
-	c.logger.Debug("[CONSUMER] start scan:", shardID, lastSeqNum)
+	c.logger.WithFields(logrus.Fields{
+		"shardId":    shardID,
+		"lastSeqNum": lastSeqNum,
+	}).Info("start scan")
 	defer func() {
-		c.logger.Debug("[CONSUMER] stop scan:", shardID)
+		c.logger.WithFields(logrus.Fields{
+			"shardId":    shardID,
+			"lastSeqNum": lastSeqNum,
+		}).Info("stop scan")
 	}()
 
 	scanTicker := time.NewTicker(c.scanInterval)
@@ -159,12 +165,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 			}
 			shardIterator = out.ShardIterator
 		} else {
-			// loop over records, call callback func
-			var records []types.Record
-
-			records = resp.Records
-
-			for _, r := range records {
+			for _, r := range resp.Records {
 				select {
 				case <-ctx.Done():
 					return fmt.Errorf("ScanShard context cancelled during record scan")
@@ -178,7 +179,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 			}
 
 			if shardClosed(resp.NextShardIterator, shardIterator) {
-				c.logger.Debug("[CONSUMER] shard closed:", shardID)
+				c.logger.Debug("shard closed:", shardID)
 				return nil
 			}
 			shardIterator = resp.NextShardIterator
@@ -187,7 +188,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) e
 		// Wait for next scan
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("ScanShard context cancelled")
+			return nil
 		case <-scanTicker.C:
 			continue
 		}
