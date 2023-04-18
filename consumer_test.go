@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"os/signal"
 	"syscall"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConsumer_ScanShard(t *testing.T) {

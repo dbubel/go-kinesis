@@ -1,10 +1,11 @@
 package go_kinesis
 
 import (
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 // Option is used to override defaults when creating a new Consumer

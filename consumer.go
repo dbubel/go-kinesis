@@ -3,12 +3,13 @@ package go_kinesis
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/sirupsen/logrus"
-	"runtime/debug"
-	"time"
 )
 
 //type TimeFormatter struct {
@@ -151,7 +152,6 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 
 		// attempt to recover from GetRecords error
 		if err != nil {
-
 			if !isRecoverable(err) {
 				c.logger.WithError(err).Error("get records error")
 				return

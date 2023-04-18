@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
-	"sync"
 )
 
 type ConsumerGroup struct {
@@ -37,6 +39,20 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
+func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			cg.ScanAll(ctx, fn)
+			time.Sleep(time.Second)
+			return nil
+		}
+	}
+	return nil
+}
+
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	if cg.store == nil {
 		return fmt.Errorf("store is not initialized")
@@ -46,6 +62,8 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	if err != nil {
 		return err
 	}
+
+	cg.logger.WithFields(logrus.Fields{"shards": shards}).Info("shards on stream")
 
 	for i := 0; i < len(shards); i++ {
 		if i >= cg.shardLimit {
@@ -68,7 +86,7 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 func (cg *ConsumerGroup) consume(ctx context.Context, shardID string, fn ScanFunc) {
 	defer func() {
 		if err := cg.store.ReleaseStream(shardID); err != nil {
-			cg.logger.WithError(err).Error()
+			cg.logger.WithError(err).Error("error releasing shard")
 		} else {
 			cg.logger.WithFields(logrus.Fields{"shard": shardID}).Info("shard released")
 		}

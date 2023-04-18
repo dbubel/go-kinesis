@@ -2,11 +2,12 @@ package go_kinesis
 
 import (
 	"context"
+	"time"
+
 	"github.com/jackc/pgx"
 	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
-	"time"
 )
 
 type Postgres struct {
@@ -43,8 +44,10 @@ func (s *Postgres) ReleaseStream(shardID string) error {
 func (s *Postgres) SyncShards(shards []string) error {
 	for i := 0; i < len(shards); i++ {
 		_, err := s.DbReader.Exec("insert into kinesis_shards (shard_id) values ($1);", shards[i])
-		if err.(pgx.PgError).Code != "23505" {
-			return err
+		if err != nil {
+			if err.(pgx.PgError).Code != "23505" {
+				return err
+			}
 		}
 	}
 	return nil
