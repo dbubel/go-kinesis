@@ -60,7 +60,7 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 		return shardID, err
 	}
 
-	query, args, err := sqlx.In("select shard_id from kinesis_shards where in_use is false and shard_id in (?) limit 1 for update;", shards)
+	query, args, err := sqlx.In("select shard_id from kinesis_shards where in_use is false and expired is false and shard_id in (?) limit 1 for update;", shards)
 	if err != nil {
 		tx.Rollback()
 		return shardID, err
@@ -89,9 +89,10 @@ func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (
 		return "", err
 	}
 
-	ticker := time.NewTicker(250 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
+	// Create a timer to stop the loop after 5 minutes
+	stopTimer := time.NewTimer(10 * time.Second)
 	for {
 		select {
 		case <-ticker.C:
@@ -102,11 +103,24 @@ func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (
 			s.log.Info("looking for available shards")
 		case <-ctx.Done():
 			return "", nil
-			//case <-stopTimer.C:
-			//	s.log.Info("polling timer up")
-			//	return "", fmt.Errorf("could not get a free shard after 5 minutes")
-			//case <-sigs:
-			//	return "", fmt.Errorf("polling interupted")
+		case <-stopTimer.C:
+			return "", shardNotFound
 		}
 	}
+}
+
+func (s *Postgres) MarkBadShard(shardID string) error {
+	_, err := s.DbReader.Exec("update kinesis_shards set in_use = false,expired=true where shard_id=$1", shardID)
+	return err
+}
+
+func (s *Postgres) SetLastSeq(shardID, lastSeq string) error {
+	_, err := s.DbReader.Exec("update kinesis_shards set last_seq=$1,last_updated=now() where shard_id=$2", lastSeq, shardID)
+	return err
+}
+
+func (s *Postgres) GetLastSeq(shardID string) (string, error) {
+	var lastSeq string
+	err := s.DbReader.Get(&lastSeq, "select last_seq from  kinesis_shards where shard_id=$1", shardID)
+	return lastSeq, err
 }

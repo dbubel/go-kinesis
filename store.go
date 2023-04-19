@@ -12,4 +12,7 @@ type Store interface {
 	PollForAvailableShard(ctx context.Context, shards []string) (string, error)
 	FindFreeShard(shards []string) (string, error)
 	SyncShards(shards []string) error
+	MarkBadShard(shardID string) error
+	SetLastSeq(shardID, lastSeq string) error
+	GetLastSeq(shardID string) (string, error)
 }

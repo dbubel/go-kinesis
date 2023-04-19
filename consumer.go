@@ -43,7 +43,7 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 		logger:                   log,
 		scanInterval:             250 * time.Millisecond,
 		maxRecords:               10000,
-		shardLimit:               10000,
+		shardLimit:               1000,
 	}
 
 	// override defaults
@@ -54,6 +54,7 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 	return c
 }
 
+// TODO: move this out of consumer so if store is nil
 func (c *Consumer) listShards() ([]string, error) {
 	var shardList []string
 
@@ -73,8 +74,16 @@ func (c *Consumer) listShards() ([]string, error) {
 		return shardList, err
 	}
 
+	// figure out which shards we can read from
 	for i := 0; i < len(streamDesc.StreamDescription.Shards); i++ {
-		shardList = append(shardList, *streamDesc.StreamDescription.Shards[i].ShardId)
+		status := *streamDesc.StreamDescription.Shards[i].SequenceNumberRange
+		if status.EndingSequenceNumber != nil {
+			if err := c.store.MarkBadShard(*streamDesc.StreamDescription.Shards[i].ShardId); err != nil {
+				return shardList, err
+			}
+		} else {
+			shardList = append(shardList, *streamDesc.StreamDescription.Shards[i].ShardId)
+		}
 	}
 	return shardList, nil
 }
@@ -114,13 +123,12 @@ func (c *Consumer) listShards() ([]string, error) {
 func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 
 	defer func() {
-
 		if err := recover(); err != nil {
 			c.logger.Error(string(debug.Stack()))
 		}
 	}()
 
-	lastSeqNum := ""
+	lastSeqNum, err := c.store.GetLastSeq(shardID)
 
 	// get shard iterator
 	out, err := c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
@@ -176,6 +184,10 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 						return
 					}
 					lastSeqNum = *r.SequenceNumber
+					err = c.store.SetLastSeq(shardID, lastSeqNum)
+					if err != nil {
+						c.logger.WithError(err).Error("error setting last seq")
+					}
 				}
 			}
 
@@ -199,8 +211,6 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 	}
 }
 
-//var ErrSkipCheckpoint = fmt.Errorf("skip checkpoint")
-
 func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID, seqNum string) (*kinesis.GetShardIteratorOutput, error) {
 	params := &kinesis.GetShardIteratorInput{
 		ShardId:    aws.String(shardID),
@@ -218,8 +228,6 @@ func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID, se
 	}
 
 	return c.client.GetShardIterator(ctx, params)
-
-	//return res, err
 }
 
 func isRecoverable(err error) bool {

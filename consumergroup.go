@@ -3,6 +3,7 @@ package go_kinesis
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
@@ -37,18 +38,19 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-//func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
-//	for {
-//		select {
-//		case <-ctx.Done():
-//			return nil
-//		default:
-//			cg.ScanAll(ctx, fn)
-//			time.Sleep(time.Second)
-//			return nil
+//	func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
+//		for {
+//			select {
+//			case <-ctx.Done():
+//				return nil
+//			default:
+//				cg.ScanAll(ctx, fn)
+//				time.Sleep(time.Second)
+//				return nil
+//			}
 //		}
 //	}
-//}
+var shardNotFound = fmt.Errorf("polling for shard timed out")
 
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	if cg.store == nil {
@@ -68,6 +70,11 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 		}
 
 		shardID, err := cg.store.PollForAvailableShard(ctx, shards)
+
+		if errors.Is(err, shardNotFound) {
+
+			continue
+		}
 
 		if err != nil && err != sql.ErrNoRows {
 			return err
