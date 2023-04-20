@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
 	"sync"
+	"time"
 )
 
 type ConsumerGroup struct {
@@ -38,18 +39,18 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-//	func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
-//		for {
-//			select {
-//			case <-ctx.Done():
-//				return nil
-//			default:
-//				cg.ScanAll(ctx, fn)
-//				time.Sleep(time.Second)
-//				return nil
-//			}
-//		}
-//	}
+func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			time.Sleep(time.Second)
+			cg.ScanAll(ctx, fn)
+		}
+	}
+}
+
 var shardNotFound = fmt.Errorf("polling for shard timed out")
 
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {

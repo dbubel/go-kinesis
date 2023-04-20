@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	go_kinesis "github.com/dbubel/go-kinesis"
 	"github.com/sirupsen/logrus"
 	"os"
@@ -43,12 +44,12 @@ func main() {
 		"test_stream",
 		//go_kinesis.WithTimestamp(time.Now().Add(-time.Second*5)),
 		//go_kinesis.WithShardIteratorType("AT_TIMESTAMP"),
-		go_kinesis.WithShardIteratorType("LATEST"),
+		go_kinesis.WithShardIteratorType(types.ShardIteratorTypeLatest),
 		go_kinesis.WithStore(pg),
-		go_kinesis.WithShardLimit(2),
+		//go_kinesis.WithShardLimit(2),
 	)
 
-	err = c.ScanAll(cancelScan(), func(record *go_kinesis.Record) error {
+	err = c.Forever(cancelScan(), func(record *go_kinesis.Record) error {
 		if record.ShardID == "shardId-000000000001" {
 			//panic("f")
 		}

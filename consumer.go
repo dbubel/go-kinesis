@@ -78,6 +78,7 @@ func (c *Consumer) listShards() ([]string, error) {
 	for i := 0; i < len(streamDesc.StreamDescription.Shards); i++ {
 		status := *streamDesc.StreamDescription.Shards[i].SequenceNumberRange
 		if status.EndingSequenceNumber != nil {
+			// TODO: identify new shards here
 			if err := c.store.MarkBadShard(*streamDesc.StreamDescription.Shards[i].ShardId); err != nil {
 				return shardList, err
 			}
@@ -128,7 +129,11 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 		}
 	}()
 
-	lastSeqNum, err := c.store.GetLastSeq(shardID)
+	var lastSeqNum string
+	var err error
+	if c.store != nil {
+		lastSeqNum, err = c.store.GetLastSeq(shardID)
+	}
 
 	// get shard iterator
 	out, err := c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
@@ -173,21 +178,17 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 			shardIterator = out.ShardIterator
 		} else {
 			for _, r := range resp.Records {
-				select {
-				case <-ctx.Done():
-					c.logger.WithError(err).Error("ScanShard context cancelled during record scan")
+
+				err := fn(&Record{r, shardID, resp.MillisBehindLatest})
+				if err != nil {
+					c.logger.WithError(err).Error("error in scan func")
 					return
-				default:
-					err := fn(&Record{r, shardID, resp.MillisBehindLatest})
-					if err != nil {
-						c.logger.WithError(err).Error("error in scan func")
-						return
-					}
-					lastSeqNum = *r.SequenceNumber
-					err = c.store.SetLastSeq(shardID, lastSeqNum)
-					if err != nil {
-						c.logger.WithError(err).Error("error setting last seq")
-					}
+				}
+
+				lastSeqNum = *r.SequenceNumber
+				err = c.store.SetLastSeq(shardID, lastSeqNum)
+				if err != nil {
+					c.logger.WithError(err).Error("error setting last seq")
 				}
 			}
 
@@ -217,9 +218,11 @@ func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID, se
 		StreamName: aws.String(streamName),
 	}
 
+	//TODO: factor in lastest + store
 	if seqNum != "" {
 		params.ShardIteratorType = types.ShardIteratorTypeAfterSequenceNumber
 		params.StartingSequenceNumber = aws.String(seqNum)
+
 	} else if c.initialTimestamp != nil {
 		params.ShardIteratorType = types.ShardIteratorTypeAtTimestamp
 		params.Timestamp = c.initialTimestamp

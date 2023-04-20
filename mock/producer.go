@@ -5,8 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"time"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -33,7 +31,7 @@ func main() {
 	}
 	var client = kinesis.NewFromConfig(cfg)
 
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1000; i++ {
 		s := fmt.Sprintf("hello %d", i)
 		hash := md5.Sum([]byte(s))
 		hashString := hex.EncodeToString(hash[:])
@@ -47,6 +45,6 @@ func main() {
 			fmt.Println(err.Error())
 		}
 
-		time.Sleep(time.Millisecond * 2000)
+		//time.Sleep(time.Millisecond * 1)
 	}
 }

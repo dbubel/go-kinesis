@@ -39,9 +39,9 @@ func WithClient(client *kinesis.Client) Option {
 }
 
 // WithShardIteratorType overrides the starting point for the consumer
-func WithShardIteratorType(t string) Option {
+func WithShardIteratorType(t types.ShardIteratorType) Option {
 	return func(c *Consumer) {
-		c.initialShardIteratorType = types.ShardIteratorType(t)
+		c.initialShardIteratorType = t
 	}
 }
 
