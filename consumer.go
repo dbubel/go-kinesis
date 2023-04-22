@@ -6,24 +6,33 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/alitto/pond"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/sirupsen/logrus"
 )
 
-//type TimeFormatter struct {
-//	logrus.Formatter
-//}
+//	type TimeFormatter struct {
+//		logrus.Formatter
+//	}
 //
-//func (u TimeFormatter) Format(e *logrus.Entry) ([]byte, error) {
-//	e.Time = e.Time.In(time.Local)
-//	return u.Formatter.Format(e)
-//}
+//	func (u TimeFormatter) Format(e *logrus.Entry) ([]byte, error) {
+//		e.Time = e.Time.In(time.Local)
+//		return u.Formatter.Format(e)
+//	}
+//
+// TODO: make this an actual type
+
+type IteratorTypeStrat string
+
+const (
+	LatestSequece IteratorTypeStrat = "LATEST_SEQUENCE"
+)
 
 type Consumer struct {
 	streamName               string
-	initialShardIteratorType types.ShardIteratorType
+	initialShardIteratorType IteratorTypeStrat
 	initialTimestamp         *time.Time
 	client                   *kinesis.Client
 	logger                   *logrus.Logger
@@ -37,13 +46,14 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
 	c := &Consumer{
-		streamName:               streamName,
-		initialShardIteratorType: types.ShardIteratorTypeLatest,
 		client:                   client,
-		logger:                   log,
+		streamName:               streamName,
+		initialShardIteratorType: LatestSequece,
 		scanInterval:             250 * time.Millisecond,
 		maxRecords:               10000,
 		shardLimit:               1000,
+		logger:                   log,
+		store:                    noopStore{},
 	}
 
 	// override defaults
@@ -54,7 +64,135 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 	return c
 }
 
-// TODO: move this out of consumer so if store is nil
+// ScanShard loops over records on a specific shard, calls the callback func
+// for each record and checkpoints the progress of scan.
+func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
+	var lastSeqNum string
+	var shardIterator *string
+	var err error
+
+	c.logger.WithFields(logrus.Fields{"shardId": shardID, "lastSeqNum": lastSeqNum}).Info("start scan")
+	defer func() {
+		c.logger.WithFields(logrus.Fields{"shardId": shardID, "lastSeqNum": lastSeqNum}).Info("stop scan")
+	}()
+
+	defer func() {
+		if err := recover(); err != nil {
+			c.logger.Errorf("ScanShard panic:\n%s", string(debug.Stack()))
+		}
+	}()
+
+	iterator, err := c.getShardIterator(ctx, c.streamName, shardID)
+	if err != nil {
+		c.logger.WithError(err).Error("get shard iterator error")
+		return
+	}
+	shardIterator = iterator.ShardIterator
+
+	scanTicker := time.NewTicker(c.scanInterval)
+	defer scanTicker.Stop()
+
+	for {
+		resp, err := c.client.GetRecords(ctx, &kinesis.GetRecordsInput{
+			Limit:         aws.Int32(int32(c.maxRecords)),
+			ShardIterator: shardIterator,
+		})
+
+		// attempt to recover from GetRecords error
+		if err != nil {
+			if !isRecoverable(err) {
+				c.logger.WithError(err).Error("get records error")
+				return
+			}
+
+			iterator, err = c.getShardIterator(ctx, c.streamName, shardID)
+			if err != nil {
+				c.logger.WithError(err).Error("get shard iterator error")
+				return
+			}
+			shardIterator = iterator.ShardIterator
+		} else {
+			for _, r := range resp.Records {
+				err := fn(&Record{r, shardID, resp.MillisBehindLatest})
+				if err != nil {
+					c.logger.WithError(err).Error("error in scan func")
+					return
+				}
+
+				err = c.store.SetLastSeq(shardID, *r.SequenceNumber)
+				if err != nil {
+					c.logger.WithError(err).Error("error setting last seq")
+				}
+			}
+
+			if shardClosed(resp.NextShardIterator, shardIterator) {
+				c.logger.WithFields(logrus.Fields{"shardId": shardID, "lastSeqNum": lastSeqNum}).Info("shard closed")
+				return
+			}
+			shardIterator = resp.NextShardIterator
+		}
+
+		// Wait for next scan
+		select {
+		case <-ctx.Done():
+			return
+		case <-scanTicker.C:
+			continue
+		}
+	}
+}
+
+func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) {
+	pool := pond.New(concurrency, poolsize)
+	c.ScanShard(ctx, shardID, func(record *Record) error {
+		pool.Submit(func() {
+			err := fn(record)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+		})
+		return nil
+	})
+}
+
+func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
+	for i := 0; i < len(shardIDs); i++ {
+		shardID := shardIDs[i]
+		c.ScanShard(ctx, shardID, fn)
+	}
+}
+
+func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
+	for _, shard := range shardIDs {
+		shardID := shard
+		c.ScanShardAsync(ctx, shardID, concurrency, poolsize, fn)
+	}
+}
+
+func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID string) (*kinesis.GetShardIteratorOutput, error) {
+	params := &kinesis.GetShardIteratorInput{
+		ShardId:    aws.String(shardID),
+		StreamName: aws.String(streamName),
+	}
+
+	// TODO: implement for strategies
+	if c.initialShardIteratorType == LatestSequece {
+		seqNum, err := c.store.GetLastSeq(shardID)
+		if err != nil {
+			return &kinesis.GetShardIteratorOutput{}, err
+		}
+
+		if seqNum == "" {
+			params.ShardIteratorType = types.ShardIteratorTypeLatest
+		} else {
+			params.ShardIteratorType = types.ShardIteratorTypeAfterSequenceNumber
+			params.StartingSequenceNumber = aws.String(seqNum)
+		}
+	}
+
+	return c.client.GetShardIterator(ctx, params)
+}
+
 func (c *Consumer) listShards() ([]string, error) {
 	var shardList []string
 
@@ -79,158 +217,14 @@ func (c *Consumer) listShards() ([]string, error) {
 		status := *streamDesc.StreamDescription.Shards[i].SequenceNumberRange
 		if status.EndingSequenceNumber != nil {
 			// TODO: identify new shards here
-			if err := c.store.MarkBadShard(*streamDesc.StreamDescription.Shards[i].ShardId); err != nil {
-				return shardList, err
-			}
+			//if err := c.store.MarkBadShard(*streamDesc.StreamDescription.Shards[i].ShardId); err != nil {
+			//	return shardList, err
+			//}
 		} else {
 			shardList = append(shardList, *streamDesc.StreamDescription.Shards[i].ShardId)
 		}
 	}
 	return shardList, nil
-}
-
-//func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) error {
-//	pool := pond.New(concurrency, poolsize)
-//	return c.ScanShard(ctx, shardID, func(record *Record) error {
-//		pool.Submit(func() {
-//			err := fn(record)
-//			if err != nil {
-//				fmt.Println(err.Error())
-//			}
-//		})
-//		return nil
-//	})
-//}
-
-//func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
-//	for i := 0; i < len(shardIDs); i++ {
-//		shardID := shardIDs[i]
-//		err := c.ScanShard(ctx, shardID, fn)
-//		if err != nil {
-//			c.logger.WithError(err).Error("error in ScanShards")
-//		}
-//	}
-//}
-
-//func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
-//	for _, shard := range shardIDs {
-//		shardID := shard
-//		c.ScanShardAsync(ctx, shardID, concurrency, poolsize, fn)
-//	}
-//}
-
-// ScanShard loops over records on a specific shard, calls the callback func
-// for each record and checkpoints the progress of scan.
-func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
-
-	defer func() {
-		if err := recover(); err != nil {
-			c.logger.Error(string(debug.Stack()))
-		}
-	}()
-
-	var lastSeqNum string
-	var err error
-	if c.store != nil {
-		lastSeqNum, err = c.store.GetLastSeq(shardID)
-	}
-
-	// get shard iterator
-	out, err := c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
-	if err != nil {
-		c.logger.WithError(err).Error("get shard iterator error")
-		return
-	}
-	shardIterator := out.ShardIterator
-
-	c.logger.WithFields(logrus.Fields{
-		"shardId":    shardID,
-		"lastSeqNum": lastSeqNum,
-	}).Info("start scan")
-	defer func() {
-		c.logger.WithFields(logrus.Fields{
-			"shardId":    shardID,
-			"lastSeqNum": lastSeqNum,
-		}).Info("stop scan")
-	}()
-
-	scanTicker := time.NewTicker(c.scanInterval)
-	defer scanTicker.Stop()
-
-	for {
-		resp, err := c.client.GetRecords(ctx, &kinesis.GetRecordsInput{
-			Limit:         aws.Int32(int32(c.maxRecords)),
-			ShardIterator: shardIterator,
-		})
-
-		// attempt to recover from GetRecords error
-		if err != nil {
-			if !isRecoverable(err) {
-				c.logger.WithError(err).Error("get records error")
-				return
-			}
-
-			out, err = c.getShardIterator(ctx, c.streamName, shardID, lastSeqNum)
-			if err != nil {
-				c.logger.WithError(err).Error("get shard iterator error")
-				return
-			}
-			shardIterator = out.ShardIterator
-		} else {
-			for _, r := range resp.Records {
-
-				err := fn(&Record{r, shardID, resp.MillisBehindLatest})
-				if err != nil {
-					c.logger.WithError(err).Error("error in scan func")
-					return
-				}
-
-				lastSeqNum = *r.SequenceNumber
-				err = c.store.SetLastSeq(shardID, lastSeqNum)
-				if err != nil {
-					c.logger.WithError(err).Error("error setting last seq")
-				}
-			}
-
-			if shardClosed(resp.NextShardIterator, shardIterator) {
-				c.logger.WithFields(logrus.Fields{
-					"shardId":    shardID,
-					"lastSeqNum": lastSeqNum,
-				}).Info("shard closed")
-				return
-			}
-			shardIterator = resp.NextShardIterator
-		}
-
-		// Wait for next scan
-		select {
-		case <-ctx.Done():
-			return
-		case <-scanTicker.C:
-			continue
-		}
-	}
-}
-
-func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID, seqNum string) (*kinesis.GetShardIteratorOutput, error) {
-	params := &kinesis.GetShardIteratorInput{
-		ShardId:    aws.String(shardID),
-		StreamName: aws.String(streamName),
-	}
-
-	//TODO: factor in lastest + store
-	if seqNum != "" {
-		params.ShardIteratorType = types.ShardIteratorTypeAfterSequenceNumber
-		params.StartingSequenceNumber = aws.String(seqNum)
-
-	} else if c.initialTimestamp != nil {
-		params.ShardIteratorType = types.ShardIteratorTypeAtTimestamp
-		params.Timestamp = c.initialTimestamp
-	} else {
-		params.ShardIteratorType = c.initialShardIteratorType
-	}
-
-	return c.client.GetShardIterator(ctx, params)
 }
 
 func isRecoverable(err error) bool {

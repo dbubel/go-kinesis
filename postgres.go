@@ -29,10 +29,16 @@ func NewPostgresStore(dsn string, log *logrus.Logger) (*Postgres, error) {
 
 	s.DbReader = dbReader
 	s.log = log
+
+	if err := s.HealthCheck(context.WithTimeout(context.Background(), time.Second)); err != nil {
+		return &s, err
+	}
+
 	return &s, nil
 }
 
-func (s *Postgres) HealthCheck(ctx context.Context) error {
+func (s *Postgres) HealthCheck(ctx context.Context, fn context.CancelFunc) error {
+	defer fn()
 	return s.DbReader.PingContext(ctx)
 }
 
@@ -60,7 +66,7 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 		return shardID, err
 	}
 
-	query, args, err := sqlx.In("select shard_id from kinesis_shards where in_use is false and expired is false and shard_id in (?) limit 1 for update;", shards)
+	query, args, err := sqlx.In("select shard_id from kinesis_shards where in_use is false and shard_id in (?) limit 1 for update;", shards)
 	if err != nil {
 		tx.Rollback()
 		return shardID, err
@@ -84,15 +90,16 @@ func (s *Postgres) FindFreeShard(shards []string) (string, error) {
 	return shardID, nil
 }
 
-func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (string, error) {
+func (s *Postgres) PollForAvailableShard(ctx context.Context, t time.Duration, shards []string) (string, error) {
 	if err := s.SyncShards(shards); err != nil {
 		return "", err
 	}
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	// Create a timer to stop the loop after 5 minutes
-	stopTimer := time.NewTimer(10 * time.Second)
+
+	// Create a timer to stop the loop after t time
+	stopTimer := time.NewTimer(t)
 	for {
 		select {
 		case <-ticker.C:
@@ -100,18 +107,13 @@ func (s *Postgres) PollForAvailableShard(ctx context.Context, shards []string) (
 			if err == nil {
 				return shard, nil
 			}
-			s.log.Info("looking for available shards")
+			s.log.Info("polling for available shards")
 		case <-ctx.Done():
 			return "", nil
 		case <-stopTimer.C:
 			return "", shardNotFound
 		}
 	}
-}
-
-func (s *Postgres) MarkBadShard(shardID string) error {
-	_, err := s.DbReader.Exec("update kinesis_shards set in_use = false,expired=true where shard_id=$1", shardID)
-	return err
 }
 
 func (s *Postgres) SetLastSeq(shardID, lastSeq string) error {

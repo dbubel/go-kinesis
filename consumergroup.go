@@ -89,9 +89,8 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 }
 
 func (cg *ConsumerGroup) consume(ctx context.Context, shardID string, fn ScanFunc) {
-
 	cg.Add(1)
-	cg.ScanShard(ctx, shardID, fn) // this blocks while
+	cg.ScanShard(ctx, shardID, fn) // this blocks while scanning
 
 	if err := cg.store.ReleaseStream(shardID); err != nil {
 		cg.logger.WithError(err).Error("error releasing shard")
@@ -102,36 +101,3 @@ func (cg *ConsumerGroup) consume(ctx context.Context, shardID string, fn ScanFun
 	cg.Sub(1)
 	cg.wg.Done()
 }
-
-//
-//func (cg *ConsumerGroup) shardDiscovery(ctx context.Context, fn ScanFunc) {
-//	scanTicker := time.NewTicker(time.Second)
-//	defer scanTicker.Stop()
-//
-//	for {
-//		// Wait for next scan
-//		select {
-//		case <-ctx.Done():
-//			return
-//		case <-scanTicker.C:
-//			cg.ScanAll(ctx, fn)
-//		}
-//	}
-//}
-
-//
-//func (cg *ConsumerGroup) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) error {
-//	g, ctx := errgroup.WithContext(ctx)
-//	for i := 0; i < len(shardIDs); i++ {
-//		shardID := shardIDs[i]
-//		g.Go(func() error {
-//			return cg.ScanShard(ctx, shardID, fn)
-//		})
-//	}
-//
-//	if err := g.Wait(); err != nil {
-//		return err
-//	}
-//
-//	return nil
-//}

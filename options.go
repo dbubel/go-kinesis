@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/sirupsen/logrus"
 )
 
@@ -39,7 +38,7 @@ func WithClient(client *kinesis.Client) Option {
 }
 
 // WithShardIteratorType overrides the starting point for the consumer
-func WithShardIteratorType(t types.ShardIteratorType) Option {
+func WithShardIteratorType(t IteratorTypeStrat) Option {
 	return func(c *Consumer) {
 		c.initialShardIteratorType = t
 	}
