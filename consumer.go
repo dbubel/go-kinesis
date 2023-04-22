@@ -175,7 +175,7 @@ func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID str
 		StreamName: aws.String(streamName),
 	}
 
-	// TODO: implement for strategies
+	// TODO: implement more strategies
 	if c.initialShardIteratorType == LatestSequece {
 		seqNum, err := c.store.GetLastSeq(shardID)
 		if err != nil {

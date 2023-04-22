@@ -70,7 +70,7 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 			break
 		}
 
-		shardID, err := cg.store.PollForAvailableShard(ctx, shards)
+		shardID, err := cg.store.PollForAvailableShard(ctx, time.Second*60, shards)
 
 		if errors.Is(err, shardNotFound) {
 
