@@ -16,3 +16,5 @@ type Store interface {
 	SetLastSeq(shardID, lastSeq string) error
 	GetLastSeq(shardID string) (string, error)
 }
+
+// TODO: create an in memory store that syncs with db

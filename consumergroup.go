@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+var shardNotFound = fmt.Errorf("polling for shard timed out")
+
 type ConsumerGroup struct {
 	*Consumer
 	activeShards int
@@ -39,20 +41,6 @@ func (c *ConsumerGroup) Sub(n int) {
 	c.activeShards -= n
 }
 
-func (cg *ConsumerGroup) Forever(ctx context.Context, fn ScanFunc) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			time.Sleep(time.Second)
-			cg.ScanAll(ctx, fn)
-		}
-	}
-}
-
-var shardNotFound = fmt.Errorf("polling for shard timed out")
-
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 	if cg.store == nil {
 		return fmt.Errorf("store is not initialized")
@@ -73,7 +61,6 @@ func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
 		shardID, err := cg.store.PollForAvailableShard(ctx, time.Second*60, shards)
 
 		if errors.Is(err, shardNotFound) {
-
 			continue
 		}
 

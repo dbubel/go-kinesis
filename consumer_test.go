@@ -33,7 +33,7 @@ func TestConsumer_ScanShard(t *testing.T) {
 	var client = kinesis.NewFromConfig(cfg2)
 
 	t.Run("test with store", func(t *testing.T) {
-		pg, err := NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable")
+		pg, err := NewPostgresStore("host=localhost port=5432 user=gokinesis password=1234 dbname=gokinesis sslmode=disable", nil)
 		if !assert.NoError(t, err) {
 			return
 		}

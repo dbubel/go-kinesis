@@ -3,7 +3,6 @@ package go_kinesis
 import (
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,7 +22,6 @@ func WithShardLimit(shardLimit int) Option {
 	}
 }
 
-// WithStore overrides the default logger
 func WithStore(store Store) Option {
 	return func(c *Consumer) {
 		c.store = store
@@ -31,11 +29,11 @@ func WithStore(store Store) Option {
 }
 
 // WithClient overrides the default client
-func WithClient(client *kinesis.Client) Option {
-	return func(c *Consumer) {
-		c.client = client
-	}
-}
+//func WithClient(client *kinesis.Client) Option {
+//	return func(c *Consumer) {
+//		c.client = client
+//	}
+//}
 
 // WithShardIteratorType overrides the starting point for the consumer
 func WithShardIteratorType(t IteratorTypeStrat) Option {
@@ -76,7 +74,7 @@ func WithMaxRecords(n int64) Option {
 // ShardClosedHandler is a handler that will be called when the consumer has reached the end of a closed shard.
 // No more records for that shard will be provided by the consumer.
 // An error can be returned to stop the consumer.
-type ShardClosedHandler = func(streamName, shardID string) error
+//type ShardClosedHandler = func(streamName, shardID string) error
 
 //func WithShardClosedHandler(h ShardClosedHandler) Option {
 //	return func(c *Consumer) {

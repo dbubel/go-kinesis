@@ -13,21 +13,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//	type TimeFormatter struct {
-//		logrus.Formatter
-//	}
-//
-//	func (u TimeFormatter) Format(e *logrus.Entry) ([]byte, error) {
-//		e.Time = e.Time.In(time.Local)
-//		return u.Formatter.Format(e)
-//	}
-//
-// TODO: make this an actual type
-
 type IteratorTypeStrat string
 
 const (
-	LatestSequece IteratorTypeStrat = "LATEST_SEQUENCE"
+	Latest IteratorTypeStrat = "LATEST"
 )
 
 type Consumer struct {
@@ -37,8 +26,8 @@ type Consumer struct {
 	client                   *kinesis.Client
 	logger                   *logrus.Logger
 	scanInterval             time.Duration
-	maxRecords               int64
 	store                    Store
+	maxRecords               int64
 	shardLimit               int
 }
 
@@ -48,7 +37,7 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 	c := &Consumer{
 		client:                   client,
 		streamName:               streamName,
-		initialShardIteratorType: LatestSequece,
+		initialShardIteratorType: Latest,
 		scanInterval:             250 * time.Millisecond,
 		maxRecords:               10000,
 		shardLimit:               1000,
@@ -142,6 +131,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 	}
 }
 
+// ScanShardAsync Experimental
 func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) {
 	pool := pond.New(concurrency, poolsize)
 	c.ScanShard(ctx, shardID, func(record *Record) error {
@@ -176,7 +166,7 @@ func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID str
 	}
 
 	// TODO: implement more strategies
-	if c.initialShardIteratorType == LatestSequece {
+	if c.initialShardIteratorType == Latest {
 		seqNum, err := c.store.GetLastSeq(shardID)
 		if err != nil {
 			return &kinesis.GetShardIteratorOutput{}, err

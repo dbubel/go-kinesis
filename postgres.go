@@ -2,12 +2,11 @@ package go_kinesis
 
 import (
 	"context"
-	"time"
-
 	"github.com/jackc/pgx"
 	_ "github.com/jackc/pgx/stdlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/sirupsen/logrus"
+	"time"
 )
 
 type Postgres struct {
