@@ -15,6 +15,7 @@ import (
 
 type IteratorTypeStrat string
 
+// TODO: create more interator types
 const (
 	Latest IteratorTypeStrat = "LATEST"
 )
@@ -31,6 +32,7 @@ type Consumer struct {
 	shardLimit               int
 }
 
+// NewConsumer creates a new consumer for processing a shard
 func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Consumer {
 	log := logrus.New()
 	log.SetLevel(logrus.DebugLevel)
@@ -54,7 +56,8 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 }
 
 // ScanShard loops over records on a specific shard, calls the callback func
-// for each record and checkpoints the progress of scan.
+// for each record and checkpoints the progress of scan if a store is provided
+// when creating a consumer or consumer group.
 func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 	var lastSeqNum string
 	var shardIterator *string
@@ -100,6 +103,7 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 				return
 			}
 			shardIterator = iterator.ShardIterator
+
 		} else {
 			for _, r := range resp.Records {
 				err := fn(&Record{r, shardID, resp.MillisBehindLatest})
@@ -131,7 +135,8 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 	}
 }
 
-// ScanShardAsync Experimental
+// ScanShardAsync experimental function for scanning a single shard and processing the items
+// concurrently
 func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurrency, poolsize int, fn ScanFunc) {
 	pool := pond.New(concurrency, poolsize)
 	c.ScanShard(ctx, shardID, func(record *Record) error {
@@ -145,6 +150,7 @@ func (c *Consumer) ScanShardAsync(ctx context.Context, shardID string, concurren
 	})
 }
 
+// ScanShards function used to scan a sclice of shardIDs and process the items with fn
 func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFunc) {
 	for i := 0; i < len(shardIDs); i++ {
 		shardID := shardIDs[i]
@@ -152,6 +158,8 @@ func (c *Consumer) ScanShards(ctx context.Context, shardIDs []string, fn ScanFun
 	}
 }
 
+// ScanShardsAsync experimental feature for scanning a list of shards async with concurrency
+// workers and poolsize for size of the items in the pool
 func (c *Consumer) ScanShardsAsync(ctx context.Context, shardIDs []string, concurrency, poolsize int, fn ScanFunc) {
 	for _, shard := range shardIDs {
 		shardID := shard
@@ -183,6 +191,8 @@ func (c *Consumer) getShardIterator(ctx context.Context, streamName, shardID str
 	return c.client.GetShardIterator(ctx, params)
 }
 
+// listShards list shards that the stream has and returns ones that are in an active state and
+// ready to be consumed from.
 func (c *Consumer) listShards() ([]string, error) {
 	var shardList []string
 
