@@ -31,14 +31,14 @@ func NewConsumerGroup(client *kinesis.Client, streamName string, opts ...Option)
 
 func (c *ConsumerGroup) Add(n int) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.activeShards += n
+	c.mu.Unlock()
 }
 
 func (c *ConsumerGroup) Sub(n int) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.activeShards -= n
+	c.mu.Unlock()
 }
 
 func (cg *ConsumerGroup) ScanAll(ctx context.Context, fn ScanFunc) error {
