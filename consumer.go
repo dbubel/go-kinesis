@@ -61,7 +61,7 @@ func NewConsumer(client *kinesis.Client, streamName string, opts ...Option) *Con
 func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 	var lastSeqNum string
 	var shardIterator *string
-	var err error
+	//var err error
 
 	c.logger.WithFields(logrus.Fields{"shardId": shardID, "lastSeqNum": lastSeqNum}).Info("start scan")
 	defer func() {
@@ -126,10 +126,12 @@ func (c *Consumer) ScanShard(ctx context.Context, shardID string, fn ScanFunc) {
 		}
 
 		// Wait for next scan
+		t := time.Now()
 		select {
 		case <-ctx.Done():
 			return
 		case <-scanTicker.C:
+			c.logger.WithFields(logrus.Fields{"waitTime": time.Now().Sub(t).Milliseconds()}).Debug("time wait batch")
 			continue
 		}
 	}
