@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	go_kinesis "github.com/dbubel/go-kinesis"
 	"github.com/sirupsen/logrus"
-	"os"
-	"os/signal"
-	"syscall"
 )
 
 func main() {
@@ -39,13 +40,18 @@ func main() {
 	}
 
 	var client = kinesis.NewFromConfig(cfg)
-	c := go_kinesis.NewConsumerGroup(
+	c, err := go_kinesis.NewConsumerGroup(
 		client,
 		"test_stream",
 		go_kinesis.WithShardIteratorType(go_kinesis.Latest),
 		go_kinesis.WithStore(pg),
 		go_kinesis.WithShardLimit(10),
 	)
+
+	if err != nil {
+		fmt.Println("Error creating consumer group:", err.Error())
+		return
+	}
 
 	err = c.ScanAll(cancelScan(), func(record *go_kinesis.Record) error {
 		l.WithFields(logrus.Fields{"shard": record.ShardID}).Debug(string(record.Data))
